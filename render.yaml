@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: session-pair-userbot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.main
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: HOST
+        value: 0.0.0.0
+      - key: HEALTH_PATH
+        value: /healthz
+      - key: TIMEZONE
+        value: Asia/Yangon
+      - key: CONTROL_MODE
+        value: group

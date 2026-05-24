@@ -100,18 +100,32 @@ class TelegramService:
         await self.client.send_message(username, text)
 
     async def assert_target_admin(self, target_chat: str | int) -> None:
+        """Best-effort target admin check.
+
+        Telegram/Telethon does not always expose channel admin rights in the
+        same way for broadcast channels vs supergroups. In some valid cases
+        an admin can post and pin, but ``admin_rights.post_messages`` or
+        ``admin_rights.pin_messages`` is returned as ``None``/``False``.
+
+        So this method only blocks the clearly-wrong case: the session account
+        is neither creator nor admin. The real source of truth remains the
+        actual forward/pin operation, which will raise a Telegram error if the
+        permission is really missing.
+        """
         me = await self.client.get_me()
         entity = await self.client.get_entity(target_chat)
         try:
             participant = await self.client(GetParticipantRequest(entity, me.id))
         except Exception:
-            # Some chats do not support this request or may be basic chats. Let send/pin checks be source of truth.
+            # Some chats do not support GetParticipantRequest. Do not block
+            # pair creation; actual send/pin will validate permissions later.
             return
+
         p = participant.participant
-        if isinstance(p, ChannelParticipantCreator):
+        if isinstance(p, (ChannelParticipantCreator, ChannelParticipantAdmin)):
             return
-        if isinstance(p, ChannelParticipantAdmin):
-            rights = p.admin_rights
-            if rights and rights.post_messages and rights.pin_messages:
-                return
-            raise RuntimeError("Session account must be target admin with Post Messages and Pin Messages permissions.")
+
+        raise RuntimeError(
+            "Session account is not an admin in the target channel. "
+            "Add it as admin with Post Messages and Pin Messages permissions."
+        )

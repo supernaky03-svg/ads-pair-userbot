@@ -22,7 +22,12 @@ async def main() -> None:
     setup_logging()
     settings = load_settings()
 
-    db = Database(settings.database_url)
+    # Start health endpoint early so Render detects the open port while DB/Telegram are starting.
+    health = HealthServer(host=settings.host, port=settings.port, path=settings.health_path)
+    await health.start()
+    logger.info("Health server listening on %s:%s%s", settings.host, settings.port, settings.health_path)
+
+    db = Database(settings.database_url, use_ssl=settings.database_ssl)
     await db.init()
 
     client = create_client(settings)
@@ -32,6 +37,7 @@ async def main() -> None:
 
     telegram = TelegramService(client)
     pair_runner = PairRunner(db=db, telegram=telegram, settings=settings)
+    await pair_runner.load_daily_time_from_db()
     pair_service = PairService(db=db, telegram=telegram, settings=settings)
 
     ctx = CommandContext(
@@ -43,10 +49,6 @@ async def main() -> None:
     )
     router = CommandRouter(client, ctx)
     router.register()
-
-    health = HealthServer(host=settings.host, port=settings.port, path=settings.health_path)
-    await health.start()
-    logger.info("Health server listening on %s:%s%s", settings.host, settings.port, settings.health_path)
 
     scheduler = DailyScheduler(db=db, runner=pair_runner, settings=settings, notify_control=router.send_control)
     scheduler.start()

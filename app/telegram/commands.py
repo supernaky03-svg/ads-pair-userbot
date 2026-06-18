@@ -158,7 +158,7 @@ class CommandRouter:
         async with self.ctx.db.session() as session:
             repo = Repository(session)
             pairs = await repo.list_pairs()
-            daily_time = await repo.get_setting("daily_run_time", self.ctx.settings.daily_run_time)
+        daily_time = self.ctx.runner.get_daily_time()
         active = sum(1 for p in pairs if p.active)
         return (
             "✅ Userbot is running\n\n"
@@ -339,6 +339,7 @@ class CommandRouter:
         async with self.ctx.db.session() as session:
             repo = Repository(session)
             await repo.set_setting("daily_run_time", args[0])
+        self.ctx.runner.set_daily_time(args[0])
         return f"✅ Daily scan time set to {args[0]} ({self.ctx.settings.timezone})."
 
     async def _setpinmode(self, args: list[str]) -> str:

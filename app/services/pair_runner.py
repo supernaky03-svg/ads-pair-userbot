@@ -42,6 +42,23 @@ class PairRunner:
         self.db = db
         self.telegram = telegram
         self.settings = settings
+        # Keep scheduler time in memory. Reading this from DB every 30 seconds keeps Neon awake.
+        self._daily_time_cache = settings.daily_run_time
+
+    def set_daily_time(self, value: str) -> None:
+        self._daily_time_cache = value
+
+    def get_daily_time(self) -> str:
+        return self._daily_time_cache
+
+    async def load_daily_time_from_db(self) -> None:
+        # One DB read at startup is fine. Avoid repeated polling after that.
+        async with self.db.session() as session:
+            repo = Repository(session)
+            self._daily_time_cache = (
+                await repo.get_setting("daily_run_time", self.settings.daily_run_time)
+                or self.settings.daily_run_time
+            )
 
     async def _delay(self) -> None:
         if self.settings.job_delay_seconds > 0:
@@ -99,9 +116,7 @@ class PairRunner:
         return await self._run_pair_ids(due_pair_ids, force=False)
 
     async def _daily_time(self) -> str:
-        async with self.db.session() as session:
-            repo = Repository(session)
-            return await repo.get_setting("daily_run_time", self.settings.daily_run_time) or self.settings.daily_run_time
+        return self._daily_time_cache
 
     async def _run_pair_ids(self, pair_ids: list[int], *, force: bool) -> list[PairRunResult]:
         results: list[PairRunResult] = []

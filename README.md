@@ -1,164 +1,83 @@
-# Session Pair Userbot
+# Ads Pair Userbot v2 — Mini App + Multi-user
 
-Telegram session-account-only userbot for daily pair forwarding.
+Mobile-first Telegram Mini App and Bot API management layer for the [original Session Pair Userbot repository](https://github.com/supernaky03-svg/ads-pair-userbot).
 
-It reads commands from Saved Messages or a private control group, scans configured source channels, forwards new posts to target channels with the original Telegram **forward header**, pins forwarded target posts, and sends a Day report to the configured username.
+## Core behavior
 
-## Main behavior
+- BotFather bot opens the dashboard, issues/revokes access keys, and delivers mandatory Smart Reports.
+- One Telethon user session remains the sender for all pairs; forwarding preserves the source attribution header.
+- Every pair belongs to one permanent app user. API queries scope by owner.
+- Login uses Telegram Mini App `initData` plus a personal `apk_live_...` key. The backend validates Telegram's signature and requires the key to belong to that Telegram identity. Only a SHA-256 hash is stored.
+- Rotating a key disables the previous key and all sessions based on it. Revoking a key preserves the user account and pairs.
+- Pair config: source, target, daily post count (1–50), starting Day, pause/enable, optional start/cutoff times, pin toggle/count (1–10), optional Report User. Source and target must be different chats.
+- Schedule defaults are 09:00 Asia/Yangon, hourly retries, and a 23:00 cutoff. A new Pair starts from new source posts (older backlog is skipped). If no post arrives by cutoff, the day's progress is closed but the Day number is not advanced.
+- Smart Reporting cannot be disabled: send to the workspace owner when all active pairs meet quota; otherwise send a partial status at cutoff. Report User is separate; blank sends no per-pair report. A failed Report User DM is queued with bounded retries and does not block the pair's completion or Smart Report.
+- Logs, per-post forwarding history, per-pair reports and Smart Report content are kept for 7 days. Daily progress older than the 7-day date window is pruned; current-day progress and source checkpoints remain.
+- Cleanup runs once daily as batched deletes. Health checks do not query Neon on every ping. The scheduler sleeps until its next due event (daily start, retry, cutoff, or a Mini App change) instead of polling every 120 seconds during normal operation.
 
-For each pair:
+## Setup
 
-```text
-Source channel -> Target channel -> Report user
-```
+1. Python 3.11+.
+2. Get Telegram API ID/hash and generate a Telethon StringSession locally with `python scripts/generate_session.py`.
+3. Create a BotFather bot; its token powers Mini App auth, key commands, and Smart Reports.
+4. Create a Neon PostgreSQL database.
+5. Copy `.env.example` to `.env` and configure all credentials. On Render, add values in Environment instead of uploading `.env`.
+6. Install/run:
 
-Each pair has its own `post_count`.
+   ```bash
+   pip install -r requirements.txt
+   uvicorn app.web.api:app --host 0.0.0.0 --port $PORT
+   ```
 
-Example: `post_count = 2`
+7. Set `PUBLIC_BASE_URL` to your HTTPS Render address. Use it as the bot's Mini App URL in BotFather.
+8. Set `LEGACY_OWNER_TELEGRAM_ID` before using an existing database; this binds existing unowned pairs to that account.
 
-```text
-09:00 Asia/Yangon: scan pair
-- If 2 new posts exist: forward both, pin both, report immediately, stop scanning this pair until tomorrow.
-- If only 1 new post exists: forward and pin it, but do not report yet.
-- Then retry only this incomplete pair every 1 hour.
-- When the second post appears: forward and pin it, report both links, stop until tomorrow.
-- If 23:00 arrives and only 1 post exists: report that 1 post and stop until tomorrow.
-```
+## Bot commands
 
-Default values:
+- `/start`, `/help` — dashboard and help
+- `/key` — create/rotate one-time personal key
+- `/revoke` — revoke access key
+- `/status` — account pair summary
+- `/createuser TELEGRAM_ID` — admin-only account prep and one-time key
+- Admins can also create workspace accounts in the Mini App's **Users** tab; an existing active key is not silently replaced.
 
-```text
-TIMEZONE=Asia/Yangon
-DAILY_RUN_TIME=09:00
-RETRY_INTERVAL_MINUTES=60
-CUTOFF_TIME=23:00
-JOB_DELAY_SECONDS=5
-```
+## Render / Neon / UptimeRobot
 
-The scheduler processes pairs sequentially, not in parallel. Between pair jobs there is a 5-second delay. After forwarding/pinning and before reporting to `@username`, it also waits 5 seconds.
+- Build: `pip install -r requirements.txt`
+- Start: `uvicorn app.web.api:app --host 0.0.0.0 --port $PORT`
+- Health endpoint: `/healthz` (no database query on each ping).
+- The scheduler wakes for daily start, retry, cutoff, and Mini App pair changes; it does not hold a Neon connection open while idle.
+- The Telethon service refuses to start an interactive login prompt in Render. Generate an authorized StringSession locally with `python scripts/generate_session.py`.
+- Configure all environment values from `.env.example` in Render.
+- UptimeRobot can monitor `/healthz`, but does not guarantee 24/7 uptime. Frequent pings can keep a Free web service awake and consume its runtime quota. The health endpoint avoids a database query to limit extra Neon compute.
+- Run only one live service instance using the shared Telethon session.
 
-## Report format
+## 7-day retention
 
-One post:
+| Data | Retention |
+|---|---|
+| Database application logs | 7 days |
+| Forwarded-post history | 7 days |
+| Per-pair report history | 7 days |
+| Pending/sent Report User outbox items | 7 days |
+| Sent Smart Report content | 7 days |
+| Revoked key hashes | 7 days |
+| User accounts, active keys, pair settings | Until explicitly removed |
+| Source checkpoints and current-day progress | While operationally needed |
+| Completed or incomplete daily progress older than 7 calendar dates | Pruned |
 
-```text
-Day3
-https://t.me/target_channel
-https://t.me/target_channel/123
-```
+Pending Smart Reports are retained while within the 7-day window so transient delivery errors can be retried; any report older than 7 days is removed, including a report that never delivered. Render stdout log retention is managed by Render, not this database cleaner.
 
-Multiple posts:
+## Control interface change
 
-```text
-Day3
-https://t.me/target_channel
+The Mini App is the primary Pair management interface in this v2 package. The legacy Telethon Saved Messages/private-control-group text command router from the original repo is **not copied verbatim** into this integration rebuild; use the BotFather commands above plus the Mini App. The published README's forwarding/cycle behavior is represented in the new engine, but any private/local modifications to upstream source need a manual comparison before replacing the original deployment.
 
-1. https://t.me/target_channel/123
-2. https://t.me/target_channel/124
-```
+## Important safety notes
 
-## Features
-
-- No bot token required
-- Telethon session account only
-- Control by Saved Messages or group
-- Multi-pair support
-- Same source/target/user can be reused in different pairs
-- Per-pair `post_count`, default `1`
-- Daily scan at 09:00 Myanmar/Yangon time by default
-- Incomplete pairs retry every 1 hour
-- 23:00 cutoff partial report if at least one post was forwarded
-- NeonDB/Postgres storage
-- Render web service support
-- UptimeRobot `/healthz` endpoint
-- Forward new posts only after pair creation
-- Forward mode preserves the source channel shown above the target post
-- Pin every forwarded post by default
-- first_day support
-- monthly reset support
-
-## Required target permissions
-
-The session account must be admin in each target channel with:
-
-- Post Messages
-- Pin Messages
-
-For private source channels, the session account must be a member.
-
-## Commands
-
-```text
-/help
-/status
-/addpair @username source_link target_link first_day [post_count]
-/listpairs
-/pair pair_id
-/dailyprogress
-/delpair pair_id
-/pausepair pair_id
-/resumepair pair_id
-/runpair pair_id
-/runall
-/edituser pair_id @newusername
-/editsource pair_id new_source_link
-/edittarget pair_id new_target_link
-/resetday pair_id day_number
-/setfirstday pair_id first_day
-/setpostcount pair_id count
-/settime HH:MM
-/setpinmode pair_id all|none
-/testnotify pair_id
-/testforward pair_id
-```
-
-## Add pair examples
-
-Default post count is 1:
-
-```text
-/addpair @user1 https://t.me/auto388game https://t.me/mytargetchannel 3
-```
-
-Post count 2:
-
-```text
-/addpair @user1 https://t.me/auto388game https://t.me/mytargetchannel 3 2
-```
-
-If pair is created on Jan 22 and `first_day = 3`, the first report is Day3 and the monthly cycle resets to Day1 on Feb 19.
-
-## Generate session string
-
-Run locally, not on Render:
-
-```bash
-pip install -r requirements.txt
-python scripts/generate_session.py
-```
-
-Paste the printed string into Render as `TELETHON_SESSION_STRING`.
-
-## Render setup
-
-1. Create NeonDB database.
-2. Create a Render Web Service from this repo/zip.
-3. Set environment variables from `.env.example`.
-4. Start command:
-
-```bash
-python -m app.main
-```
-
-5. Add UptimeRobot monitor:
-
-```text
-https://your-render-service.onrender.com/healthz
-```
-
-## Notes
-
-- If the source channel has protected content enabled, Telegram may block forwarding.
-- If the report user privacy prevents DMs, the error is sent to the control chat and stored in DB.
-- Private channel post links use `https://t.me/c/.../...` and only work for channel members.
-- If more new posts exist than the pair `post_count`, the extra posts are left for the next daily cycle because `last_seen_message_id` is advanced only to the last forwarded source post.
+- First integration build; test with disposable channels and a copied database before live cutover.
+- `LEGACY_OWNER_TELEGRAM_ID` should be set explicitly to prevent existing pairs being assigned to the wrong account.
+- New pairs skip old source backlog, matching the original documentation.
+- The pin count means the latest N messages from a forwarding batch are pinned; older pins are not automatically removed.
+- This v2 web package's Python files are a self-contained rebuild of the documented behavior. The original private/local Telethon command handlers were not carried over byte-for-byte; check `docs/MIGRATION.md` before replacing an existing deployment.
+- Telegram does not provide exactly-once transactional forwarding. A process crash between Telegram success and database commit can still cause an edge-case duplicate; checkpoint recovery and unique DB constraints reduce this risk.
+- This package uses Bot API for account/dashboard/reporting and Telethon for forwarding.

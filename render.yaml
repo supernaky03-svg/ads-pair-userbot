@@ -1,18 +1,41 @@
 services:
   - type: web
-    name: session-pair-userbot
-    env: python
+    name: ads-pair-userbot-v2
+    runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m app.main
+    startCommand: uvicorn app.web.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - key: HOST
-        value: 0.0.0.0
-      - key: HEALTH_PATH
-        value: /healthz
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: TELETHON_SESSION_STRING
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_SECRET
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ADMIN_USER_IDS
+        sync: false
+      - key: LEGACY_OWNER_TELEGRAM_ID
+        sync: false
       - key: TIMEZONE
         value: Asia/Yangon
-      - key: CONTROL_MODE
-        value: group
+      - key: DAILY_RUN_TIME
+        value: "09:00"
+      - key: CUTOFF_TIME
+        value: "23:00"
+      - key: RETRY_INTERVAL_MINUTES
+        value: "60"
+      - key: SCHEDULER_POLL_SECONDS
+        value: "120"
+      - key: REPORT_CHECK_INTERVAL_SECONDS
+        value: "300"
+      - key: CLEANUP_INTERVAL_SECONDS
+        value: "86400"

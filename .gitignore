@@ -1,11 +1,9 @@
 .env
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.python-version
 .venv/
 venv/
+__pycache__/
+*.py[cod]
 *.session
 *.session-journal
 .pytest_cache/
+.coverage

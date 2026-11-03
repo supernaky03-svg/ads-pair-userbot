@@ -186,19 +186,28 @@ def serialize_pair(pair: Pair, progress: DailyPairProgress | None = None):
             "today_forwarded": progress.forwarded_count if progress else 0,
             "today_completed": bool(progress and progress.completed_at)}
 
-@app.get("/")
-def root(): return {"app": "/app", "health": settings.health_path, "service": "Ads Pair Manager"}
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    return {
+        "app": "/app",
+        "health": settings.health_path,
+        "service": "Ads Pair Manager",
+    }
 
-@app.get("/app")
-def mini_app(): return FileResponse(WEB_DIR / "index.html")
 
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 def healthz(request: Request):
-    # Cheap health response intentionally does not query Neon on every UptimeRobot ping.
     telegram = getattr(request.app.state, "telegram", None)
     worker_connected = bool(telegram and telegram.connected)
-    return {"status": "ok", "worker_configured": settings.telegram_worker_enabled,
-            "worker_connected": worker_connected, "bot_configured": bool(settings.bot_token)}
+
+    return {
+        "status": "ok",
+        "worker_configured": settings.telegram_worker_enabled,
+        "worker_connected": worker_connected,
+        "bot_configured": bool(settings.bot_token),
+    }
+
+
 
 @app.post("/api/auth/key")
 async def auth_key(payload: AuthInput, db: AsyncSession = Depends(get_db)):
